@@ -8,6 +8,15 @@
 
 namespace metafrog {
 
+class unknown_case : std::exception {
+public:
+  using std::exception::exception;
+  const char* what() const noexcept {
+    return "Unknown case was encountered in an instance "
+            "of metafrog::template_switch";
+  }
+};
+
 template<typename SubType, typename CaseType>
 struct template_switch {
 public: // types
@@ -31,6 +40,13 @@ public: // Defaults for users
   
   inline bool compare(case_type a, case_type b) {
     return a == b;
+  }
+
+  /// Default otherwise clause. This will simply raise an
+  /// exception if an unknown case is encountered.
+  template<typename... Args>
+  static case_type otherwise(...) {
+    throw unknown_case();
   }
 
 public: // call operator
