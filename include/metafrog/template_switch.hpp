@@ -1,10 +1,17 @@
 #ifndef METAFROG_TEMPLATE_SWITCH_HEADER
 #define METAFROG_TEMPLATE_SWITCH_HEADER
 
+// TODO: Can we get rid of the MPL dependency? Use tuples?
+// Only needed for iterating the list of cases.
 #include <boost/mpl/vector.hpp>
+#include <boost/mpl/empty.hpp>
+#include <boost/mpl/size.hpp>
+#include <boost/mpl/front.hpp>
+#include <boost/mpl/pop_front.hpp>
 
 #include <utility>
 #include <type_traits>
+#include <exception>
 
 namespace metafrog {
 
@@ -17,16 +24,17 @@ public:
   }
 };
 
-template<typename SubType, typename CaseType>
+template<typename SubType, typename ReturnType, typename CaseType>
 struct template_switch {
 public: // types
 
   typedef SubType sub_type;
+  typedef ReturnType return_type;
   typedef CaseType case_type;
 
   template<case_type CaseV>
   struct case_ {
-    static const case_type type = CaseV;
+    static const case_type value = CaseV;
   };
 
   template <case_type... Cases>
@@ -34,11 +42,32 @@ public: // types
     typedef boost::mpl::vector< case_<Cases>... > type;
   };
 
+private: // Detail
+
+  template <typename T> class is_variadic
+  {
+    template <typename C> static bool test(
+      const std::type_info &x __attribute__ ((unused))
+          = typeid(C::variadic) );
+    template <typename C> static long test(...);
+
+    public:
+    // TODO: Also check whether T::variadic == true
+    enum { value = sizeof(test<T>(0)) == sizeof(char) };
+  };
+
+
 public: // Defaults for users
 
-  static const bool variadic = false;
+  /// Whether when and otherwise are variadic.
+  /// Can be overwritten.
+  /// If true, the when<...>::run and otherwise functions
+  /// will be passed the expected return type and the
+  /// parameters given as variadic template parameters.
+  static const bool variadic = is_variadic<sub_type>::value;
   
-  inline bool compare(case_type a, case_type b) {
+  /// Default case compare. May be overwritten
+  static inline bool compare(case_type a, case_type b) {
     return a == b;
   }
 
@@ -51,74 +80,87 @@ public: // Defaults for users
 
 public: // call operator
 
-  template<typename Return, typename... Args>
-  inline Return operator()(case_type&& data, Args&&... args) {
-    match<typename sub_type::cases, Return, Args...>(
-        std::forward( data ), std::forward<Args>(args)... );
+  template<typename... Args>
+  inline return_type operator()(case_type&& data, Args&&... args) {
+    return match<
+          boost::mpl::empty<typename sub_type::cases>::value
+        , typename sub_type::cases
+        , Args...
+      >::run(
+          std::forward<case_type>( data )
+        , std::forward<Args>(args)... );
   }
 
-private: // Detail
+private: // Detail: Implementation
   
   struct variadic_proxy {
-    template <typename Return, typename... Args>
-    static inline Return otherwise(case_type&& data, Args&&... args) {
-      return sub_type::template otherwise<Return, Args...>(
+    template <typename... Args>
+    static inline return_type otherwise(case_type&& data, Args&&... args) {
+      return sub_type::template otherwise<Args...>(
             std::forward( data )
           , std::forward<Args>(args)... );
     }
 
-    template <case_type Data, typename Return, typename... Args>
-    static inline Return when(Args&&... args) {
-      typedef typename sub_type::template then< Data > then_t;
-      return then_t::template run<Return, Args...>( std::forward<Args>(args)... );
+    template <case_type Data, typename... Args>
+    static inline return_type when(Args&&... args) {
+      return sub_type::template then< Data, Args...>( std::forward<Args>(args)... );
     }
   };
 
   struct static_proxy {
-    template <typename Return, typename... Args>
-    static inline Return otherwise(case_type&& data, Args&&... args) {
+    template <typename... Args>
+    static inline return_type otherwise(case_type&& data, Args&&... args) {
       return sub_type::otherwise(
-            std::forward( data )
+            std::forward<case_type>( data )
           , std::forward<Args>(args)... );
     }
 
-    template <case_type Data, typename Return, typename... Args>
-    static inline Return when(Args&&... args) {
-      typedef typename sub_type::template then< Data > then_t;
-      return then_t::run( std::forward<Args>(args)... );
+    template <case_type Data, typename... Args>
+    static inline return_type when(Args&&... args) {
+      return sub_type::template when< Data >( std::forward<Args>(args)... );
     }
   };
 
   typedef typename std::conditional<
-    sub_type::variadic
+    variadic
       , variadic_proxy
       , static_proxy
-      > fitting_proxy;
+      >::type fitting_proxy;
 
-  template<typename Cases, typename Return, typename... Args>
-  static inline Return match(case_type&& data, Args&&... args) {
+  template<bool CasesEmpty, typename Cases, typename... Args>
+  struct match {
+    static inline return_type run(case_type&& data, Args&&... args) {
 
-    using namespace boost::mpl;
+      using namespace boost::mpl;
 
-    // empty
-    if ( empty< Cases >::type )
-      return fitting_proxy::template otherwise<
-          Return, Args...
-        >(std::forward(data), std::forward<Args>(args)... );
+      // match
+      if ( sub_type::compare(front< Cases >::type::value, data) )
+        return fitting_proxy::template when< 
+            front< Cases >::type::value, Args...
+          >(std::forward<Args>(args)... );
 
-    // match
-    else if ( sub_type::compare(front< Cases >::type, data) )
-      return fitting_proxy::template when< 
-          typename front< Cases >::type, Return, Args...
-        >(std::forward<Args>(args)... );
+      // try next
+      else
+        return match<
+              size< Cases >::value == 1
+              // (pop the one we just tested)
+            , typename pop_front< Cases >::type 
+            , Args...
+          >::run( 
+              std::forward<case_type>(data)
+            , std::forward<Args>(args)... );
+    }
+  };
 
-    // try next
-    else
-      return match<
-            pop_front< Cases >::type // (pop the one we just tested)
-          , Return, Args...
-        >( std::forward(data), std::forward<Args>(args)... );
-  }
+  // No match found
+  template<typename Cases, typename... Args>
+  struct match<true, Cases, Args...> {
+    static inline return_type run(case_type&& data, Args&&... args) {
+      return fitting_proxy::template otherwise<Args...>(
+            std::forward<case_type>(data)
+          , std::forward<Args>(args)... );
+    }
+  };
 
 };
 
