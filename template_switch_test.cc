@@ -4,6 +4,9 @@
 
 #include <assert.h>
 #include <functional>
+
+#include "gtest/gtest.h"
+
 #include "metafrog/template_switch.hpp"
 
 using metafrog::template_switch;
@@ -18,28 +21,18 @@ struct sis_ : template_switch<sis_, int, int> {
 
 } min_case;
 
-template<typename Er>
-void assert_raise(std::function<void()> code) {
-  bool caught = false;
+TEST(TemplateSwitchTest, Minimum) {
+  ASSERT_EQ( min_case(1),  2);
+  ASSERT_EQ( min_case(4),  8);
+  ASSERT_EQ( min_case(6), 12);
+  ASSERT_EQ( min_case(10), 20);
 
-  try {
-    code();
-  } catch (Er &er) {
-    caught = true;
-  }
+  ASSERT_THROW( min_case(-2), metafrog::unknown_case);
+};
 
-  assert( caught );
-}
-
-int main() {
-  assert( min_case(1) ==  2);
-  assert( min_case(4) ==  8);
-  assert( min_case(6) == 12);
-  assert( min_case(10) == 20);
-
-  assert_raise<metafrog::unknown_case>([](){
-    min_case(-2);
-  });
+int main(int argc, char **argv) {
+  testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 
   return 0;
 }
