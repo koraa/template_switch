@@ -44,8 +44,7 @@ public: // types
 
 private: // Detail
 
-  template <typename T> class is_variadic
-  {
+  template <typename T> class is_variadic {
     template <typename C> static bool test(
       const std::type_info &x __attribute__ ((unused))
           = typeid(C::variadic) );
