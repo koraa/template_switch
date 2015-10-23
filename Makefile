@@ -6,6 +6,7 @@ JOBS := 2
 
 test_libs = vendor/googletest/make/gtest_main.a
 test_objs = template_switch_test.o
+test_headers = include/metafrog/template_switch.hpp
 test_exe = template_switch_test
 
 .PHONY: run_test clean
@@ -13,7 +14,7 @@ test_exe = template_switch_test
 run_test: $(test_exe)
 	"./$(test_exe)"
 
-$(test_exe): googletest $(test_libs) $(test_objs)
+$(test_exe): googletest $(test_libs) $(test_headers) $(test_objs)
 	$(CXX) $(LDFLAGS) $(test_objs) $(test_libs) -o $@
 
 clean:
