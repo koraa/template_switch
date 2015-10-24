@@ -1,4 +1,5 @@
 *.o
 .*.swp
+*.s
 
 template_switch_test
